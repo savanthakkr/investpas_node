@@ -1,5 +1,7 @@
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
+const query = require("../helpers/query");
+const constants = require("../vars/constants");
 
 exports.generateConsent = async (req, res) => {
 
@@ -103,4 +105,156 @@ exports.consumeConsent = async (req, res) => {
       message: error.response?.data || error.message
     });
   }
+};
+
+exports.getPortfolio = async (req, res) => {
+    try {
+        const user = req.user;
+        const { dhanAccessToken } = req.body;
+
+        if (!user || !user.dhanClientId) {
+            return res.json({
+                status: false,
+                message: "User authentication required"
+            });
+        }
+
+        if (!dhanAccessToken) {
+            return res.json({
+                status: false,
+                message: "Dhan access token required"
+            });
+        }
+
+        const response = await axios.get(
+            "https://api.dhan.co/v2/positions",
+            {
+                headers: {
+                    "access-token": dhanAccessToken
+                }
+            }
+        );
+
+        res.json({
+            status: true,
+            data: response.data
+        });
+    } catch (error) {
+        console.log("DHAN PORTFOLIO ERROR:", error.response?.data || error.message);
+        res.json({
+            status: false,
+            message: error.response?.data || error.message
+        });
+    }
+};
+
+exports.searchStocks = async (req, res) => {
+    try {
+        const { search } = req.query;
+        if (!search) {
+            return res.json({
+                status: true,
+                data: []
+            });
+        }
+        const data = await query.fetchRecords(
+            constants.vals.defaultDB,
+            "dhan_scrip_master",
+            `
+            WHERE DISPLAY_NAME LIKE '%${search}%'
+            OR SYMBOL_NAME LIKE '%${search}%'
+            LIMIT 20
+            `
+        );
+
+        const formatted = data.map(item => ({
+            securityId: item.SECURITY_ID,
+            name: item.DISPLAY_NAME,
+            symbol: item.SYMBOL_NAME,
+            exchangeSegment: item.SEGMENT,
+            exchange: item.EXCH_ID,
+            lotSize: item.LOT_SIZE
+        }));
+
+        res.json({
+            status: true,
+            data: formatted
+        });
+    } catch (error) {
+        res.json({
+            status: false,
+            message: error.message
+        });
+    }
+};
+
+exports.buyOrder = async (req, res) => {
+    try {
+        const user = req.user;
+
+        if (!user || !user.dhanClientId) {
+            return res.json({
+                status: false,
+                message: "User authentication required"
+            });
+        }
+
+        const {
+            dhanAccessToken,
+            securityId,
+            exchangeSegment,
+            quantity,
+            price,
+            orderType
+        } = req.body;
+
+        if (!dhanAccessToken || !securityId || !exchangeSegment || !quantity) {
+            return res.json({
+                status: false,
+                message: "Missing required fields"
+            });
+        }
+
+        const orderPayload = {
+            dhanClientId: user.dhanClientId,
+            correlationId: Date.now().toString(),
+            transactionType: "BUY",
+            exchangeSegment: exchangeSegment,
+            productType: "INTRADAY",
+            orderType: orderType || "MARKET",
+            validity: "DAY",
+            securityId: securityId,
+            quantity: quantity.toString(),
+            disclosedQuantity: "",
+            price: orderType === "LIMIT" ? price : "",
+            triggerPrice: "",
+            afterMarketOrder: false,
+            amoTime: "",
+            boProfitValue: "",
+            boStopLossValue: ""
+        };
+
+        const response = await axios.post(
+            "https://api.dhan.co/v2/orders",
+            orderPayload,
+            {
+                headers: {
+                    "access-token": dhanAccessToken,
+                    "Content-Type": "application/json"
+                }
+            }
+        );
+
+        res.json({
+            status: true,
+            message: "Order placed successfully",
+            data: response.data
+        });
+    } catch (error) {
+        console.log("BUY ORDER ERROR:", error.response?.data || error.message);
+        res.json({
+            status: false,
+            message: error.response?.data || error.message
+        });
+    }
 };

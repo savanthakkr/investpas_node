@@ -1,29 +1,46 @@
+const jwt = require("jsonwebtoken");
 const dbquery = require("../helpers/query");
 let constants = require("../vars/constants");
 let { notFoundResponse, unauthorizedResponse } = require("../vars/apiResponse");
 
 exports.authentication = async (req, res, next) => {
     try {
-        const token =  req?.headers?.authorization;
-
-        if(!token) {
-            return unauthorizedResponse(res, 'Invalid token.');
+        const token = req.headers.authorization;
+        if (!token) {
+            return unauthorizedResponse(res, "Token missing");
         }
-
-        let condition = `WHERE user_Token = '${token}' AND is_active = 1 AND is_delete = 0`;
-        const userData = await dbquery.fetchSingleRecord(constants.vals.defaultDB, 'user', condition);
-
-        if (Array.isArray(userData) && userData.length == 0) {
-            return unauthorizedResponse(res, 'Invalid token.');
-        } else {
-            req.userInfo = userData;
-            next();
-        }
-
+        // Bearer token handle
+        const cleanToken = token.replace("Bearer ", "");
+        const decoded = jwt.verify(cleanToken, process.env.JWT_SECRET);
+        req.user = decoded;
+        next();
     } catch (error) {
-        throw error;
+        return unauthorizedResponse(res, "Invalid token");
     }
-}
+};
+
+// exports.authentication = async (req, res, next) => {
+//     try {
+//         const token =  req?.headers?.authorization;
+
+//         if(!token) {
+//             return unauthorizedResponse(res, 'Invalid token.');
+//         }
+
+//         let condition = `WHERE user_Token = '${token}' AND is_active = 1 AND is_delete = 0`;
+//         const userData = await dbquery.fetchSingleRecord(constants.vals.defaultDB, 'user', condition);
+
+//         if (Array.isArray(userData) && userData.length == 0) {
+//             return unauthorizedResponse(res, 'Invalid token.');
+//         } else {
+//             req.userInfo = userData;
+//             next();
+//         }
+
+//     } catch (error) {
+//         throw error;
+//     }
+// }
 
 exports.patrolUnitAuthentication = async (req, res, next) => {
     try {

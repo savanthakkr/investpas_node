@@ -1,6 +1,13 @@
 var express = require("express");
 var apiMiddleware = require("../middlewares/api");
-const { generateConsent, consumeConsent } = require("../controllers/DhanController");
+const { authentication } = require("../middlewares/authentication");
+const {
+    generateConsent,
+    consumeConsent,
+    getPortfolio,
+    searchStocks,
+    buyOrder,
+} = require("../controllers/DhanController");
 
 var app = express();
 
@@ -19,5 +26,7 @@ app.get("/generate-consent", generateConsent);
 
 // Consume consent route - With middleware
 app.use("/consume-consent", apiMiddleware, consumeConsent);
-
+app.use("/portfolio", apiMiddleware, authentication, getPortfolio);
+app.use("/search-stocks", apiMiddleware,authentication, searchStocks);
+app.use("/buy-order", apiMiddleware, authentication, buyOrder);
 module.exports = app;

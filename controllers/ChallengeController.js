@@ -1,21 +1,22 @@
 const query = require("../helpers/query");
+const constants = require("../vars/constants");
 const utility = require("../helpers/utility");
 
 // CREATE CHALLENGE
 exports.createChallenge = async (req, res) => {
 
     try {
-        let userInfo = req?.userInfo;
 
-        // User must be authenticated to create a challenge
-        if (!userInfo || !userInfo.user_Id) {
+        const user = req.user;
+        if (!user || !user.dhanClientId) {
             return res.json({
                 status: false,
                 message: "User authentication required"
             });
         }
 
-        const dhanClientId = userInfo.dhan_client_id;
+        const dhanClientId = user.dhanClientId;
+
         const {
             tradingCapital,
             minProfit,
@@ -29,106 +30,128 @@ exports.createChallenge = async (req, res) => {
             midcapNiftyLots,
             sensexLots,
             challengeDays
-        } = req.body?.inputdata;
+        } = req.body.inputdata; // ⚠️ no inputdata
 
-        // Validation
-        if (!tradingCapital || !challengeDays) {
+        // 🔍 check existing challenge
+        const existing = await query.fetchSingleRecord(
+            constants.vals.defaultDB,
+            "user_challenges",
+            `WHERE dhan_client_id='${dhanClientId}' AND is_active=1`
+        );
+
+        // ================= UPDATE =================
+        if (existing && existing.id) {
+
+            const updateRes = await query.updateRecord(
+                constants.vals.defaultDB,
+                "user_challenges",
+                `id=${existing.id}`,
+                `
+                trading_capital=${tradingCapital},
+                min_profit=${minProfit},
+                max_profit=${maxProfit},
+                min_loss=${minLoss},
+                max_loss=${maxLoss},
+                max_trades_per_day=${maxTradesPerDay},
+                nifty_lots=${niftyLots},
+                banknifty_lots=${bankNiftyLots},
+                finnifty_lots=${finNiftyLots},
+                midcapnifty_lots=${midcapNiftyLots},
+                sensex_lots=${sensexLots},
+                challenge_days=${challengeDays},
+                challenge_start_date=NOW(),
+                challenge_end_date=DATE_ADD(NOW(), INTERVAL ${challengeDays} DAY),
+                updated_at=NOW()
+                `
+            );
+
+            if (!updateRes) {
+                return res.json({
+                    status: false,
+                    message: "Update failed"
+                });
+            }
+
             return res.json({
-                status: false,
-                message: "Trading capital and challenge days are required"
+                status: true,
+                message: "Challenge updated successfully"
             });
+
         }
 
-        const sql = `
-        INSERT INTO user_challenges
-        (
-            dhan_client_id,
-            user_id,
-            trading_capital,
-            min_profit,
-            max_profit,
-            min_loss,
-            max_loss,
-            max_trades_per_day,
-            nifty_lots,
-            banknifty_lots,
-            finnifty_lots,
-            midcapnifty_lots,
-            sensex_lots,
-            challenge_days,
-            challenge_start_date,
-            challenge_end_date,
-            is_active,
-            created_at
-        )
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW(),DATE_ADD(NOW(), INTERVAL ? DAY),1,NOW())
-        `;
+        // ================= INSERT =================
+        else {
 
-        const result = await query.runQuery(sql, [
-            dhanClientId,
-            userInfo.user_Id,
-            tradingCapital,
-            minProfit,
-            maxProfit,
-            minLoss,
-            maxLoss,
-            maxTradesPerDay,
-            niftyLots,
-            bankNiftyLots,
-            finNiftyLots,
-            midcapNiftyLots,
-            sensexLots,
-            challengeDays,
-            challengeDays
-        ]);
+            const insertRes = await query.insertSingle(
+                constants.vals.defaultDB,
+                "user_challenges",
+                {
+                    dhan_client_id: dhanClientId,
+                    trading_capital: tradingCapital,
+                    min_profit: minProfit,
+                    max_profit: maxProfit,
+                    min_loss: minLoss,
+                    max_loss: maxLoss,
+                    max_trades_per_day: maxTradesPerDay,
+                    nifty_lots: niftyLots,
+                    banknifty_lots: bankNiftyLots,
+                    finnifty_lots: finNiftyLots,
+                    midcapnifty_lots: midcapNiftyLots,
+                    sensex_lots: sensexLots,
+                    challenge_days: challengeDays,
+                    challenge_start_date: new Date(),
+                    challenge_end_date: new Date(Date.now() + challengeDays * 24 * 60 * 60 * 1000),
+                    is_active: 1
+                }
+            );
 
-        res.json({
-            status: true,
-            message: "Challenge created successfully",
-            data: {
-                challengeId: result.insertId
+            if (!insertRes) {
+                return res.json({
+                    status: false,
+                    message: "Insert failed"
+                });
             }
-        });
 
+            return res.json({
+                status: true,
+                message: "Challenge created successfully",
+                data: {
+                    challengeId: insertRes
+                }
+            });
+        }
     } catch (error) {
-        console.log("CREATE CHALLENGE ERROR:", error);
         res.json({
             status: false,
             message: error.message
         });
     }
-
 };
 
 // GET CURRENT CHALLENGE
 exports.getCurrentChallenge = async (req, res) => {
 
     try {
-        let userInfo = req?.userInfo;
 
-        if (!userInfo || !userInfo.user_Id) {
+        const user = req.user;
+        if (!user || !user.dhanClientId) {
             return res.json({
                 status: false,
                 message: "User authentication required"
             });
         }
 
-        const dhanClientId = userInfo.dhan_client_id;
-        const sql = `
-        SELECT * 
-        FROM user_challenges
-        WHERE dhan_client_id = ?
-        AND is_active = 1
-        LIMIT 1
-        `;
-
-        const result = await query.runQuery(sql, [dhanClientId]);
+        const dhanClientId = user.dhanClientId;
+        const result = await query.fetchSingleRecord(
+            constants.vals.defaultDB,
+            "user_challenges",
+            `WHERE dhan_client_id='${dhanClientId}' AND is_active=1`
+        );
 
         res.json({
             status: true,
-            data: result[0] || null
+            data: result || null
         });
-
     } catch (error) {
         res.json({
             status: false,
@@ -141,305 +164,222 @@ exports.getCurrentChallenge = async (req, res) => {
 exports.checkOrderRules = async (req, res) => {
 
     try {
-        let userInfo = req?.userInfo;
-
-        if (!userInfo || !userInfo.user_Id) {
+        const user = req.user;
+        if (!user || !user.dhanClientId) {
             return res.json({
                 status: false,
                 message: "User authentication required"
             });
         }
 
-        const dhanClientId = userInfo.dhan_client_id;
-        let { index, quantity } = req.body?.inputdata;
+        const dhanClientId = user.dhanClientId;
+        let { index, quantity } = req.body;
 
         index = index?.toUpperCase();
-        const cooldown = await query.runQuery(
-            `SELECT * FROM challenge_pause_logs
-             WHERE dhan_client_id=? 
-             AND pause_end > NOW()
-             ORDER BY id DESC LIMIT 1`,
-            [dhanClientId]
+
+        // cooldown check
+        const cooldown = await query.fetchRecords(
+            constants.vals.defaultDB,
+            "challenge_pause_logs",
+            `WHERE dhan_client_id='${dhanClientId}' AND pause_end > NOW() ORDER BY id DESC LIMIT 1`
         );
 
         if (cooldown.length) {
             return res.json({
                 allowed: false,
                 rule: "COOLDOWN_ACTIVE",
-                message: "Trading paused due to cooldown",
                 pause_end: cooldown[0].pause_end
             });
         }
 
-        const challenge = await query.runQuery(
-            `SELECT * FROM user_challenges 
-             WHERE dhan_client_id=? 
-             AND is_active=1 
-             LIMIT 1`,
-            [dhanClientId]
+        // challenge
+        const rules = await query.fetchSingleRecord(
+            constants.vals.defaultDB,
+            "user_challenges",
+            `WHERE dhan_client_id='${dhanClientId}' AND is_active=1`
         );
 
-        if (!challenge.length) {
-            return res.json({ allowed: true });
-        }
+        if (!rules) return res.json({ allowed: true });
 
-        const rules = challenge[0];
-        const pnlData = await query.runQuery(
-            `SELECT SUM(pnl) as total 
-             FROM challenge_trade_logs
-             WHERE dhan_client_id=? 
-             AND trade_date=CURDATE()`,
-            [dhanClientId]
+        // pnl
+        const pnlData = await query.fetchSingleRecord(
+            constants.vals.defaultDB,
+            "challenge_trade_logs",
+            `WHERE dhan_client_id='${dhanClientId}' AND trade_date=CURDATE()`,
+            "SUM(pnl) as total"
         );
 
-        const todayPnL = pnlData[0].total || 0;
+        const todayPnL = pnlData?.total || 0;
+
         if (todayPnL <= -rules.max_loss) {
-
-            await exports.triggerCooldown(
-                dhanClientId,
-                rules.id,
-                "DAILY_LOSS_LIMIT"
-            );
-
-            return res.json({
-                allowed: false,
-                rule: "DAILY_LOSS_LIMIT",
-                message: "Daily loss limit reached"
-            });
+            await exports.triggerCooldown(dhanClientId, rules.id, "DAILY_LOSS_LIMIT");
+            return res.json({ allowed: false, rule: "DAILY_LOSS_LIMIT" });
         }
 
         if (todayPnL >= rules.max_profit) {
-
-            await exports.triggerCooldown(
-                dhanClientId,
-                rules.id,
-                "DAILY_PROFIT_TARGET"
-            );
-
-            return res.json({
-                allowed: false,
-                rule: "DAILY_PROFIT_TARGET",
-                message: "Daily profit target achieved"
-            });
+            await exports.triggerCooldown(dhanClientId, rules.id, "DAILY_PROFIT_TARGET");
+            return res.json({ allowed: false, rule: "DAILY_PROFIT_TARGET" });
         }
 
-        const tradeCount = await query.runQuery(
-            `SELECT COUNT(*) as total 
-             FROM challenge_trade_logs
-             WHERE dhan_client_id=? 
-             AND trade_date=CURDATE()`,
-            [dhanClientId]
+        // trades
+        const tradeCount = await query.fetchSingleRecord(
+            constants.vals.defaultDB,
+            "challenge_trade_logs",
+            `WHERE dhan_client_id='${dhanClientId}' AND trade_date=CURDATE()`,
+            "COUNT(*) as total"
         );
 
-        const todayTrades = tradeCount[0].total || 0;
-        if (todayTrades >= rules.max_trades_per_day) {
-            await exports.triggerCooldown(
-                dhanClientId,
-                rules.id,
-                "MAX_TRADES_LIMIT"
-            );
-            return res.json({
-                allowed: false,
-                rule: "MAX_TRADES_LIMIT",
-                message: "Maximum trades per day reached"
-            });
+        if ((tradeCount?.total || 0) >= rules.max_trades_per_day) {
+            await exports.triggerCooldown(dhanClientId, rules.id, "MAX_TRADES_LIMIT");
+            return res.json({ allowed: false, rule: "MAX_TRADES_LIMIT" });
         }
 
-        let allowedQty = 0;
-        if (index === "NIFTY") allowedQty = rules.nifty_lots;
-        if (index === "BANKNIFTY") allowedQty = rules.banknifty_lots;
-        if (index === "FINNIFTY") allowedQty = rules.finnifty_lots;
-        if (index === "MIDCAPNIFTY") allowedQty = rules.midcapnifty_lots;
-        if (index === "SENSEX") allowedQty = rules.sensex_lots;
+        // quantity
+        let allowedQty = {
+            NIFTY: rules.nifty_lots,
+            BANKNIFTY: rules.banknifty_lots,
+            FINNIFTY: rules.finnifty_lots,
+            MIDCAPNIFTY: rules.midcapnifty_lots,
+            SENSEX: rules.sensex_lots
+        }[index] || 0;
 
         if (quantity > allowedQty) {
-
             return res.json({
                 allowed: false,
                 rule: "QUANTITY_RULE",
-                message: `Quantity limit exceeded. Allowed ${allowedQty}`
+                message: `Allowed ${allowedQty}`
             });
         }
-        res.json({
-            allowed: true
-        });
+
+        res.json({ allowed: true });
 
     } catch (error) {
-        console.log("RULE CHECK ERROR:", error);
-        res.json({
-            allowed: false,
-            message: error.message
-        });
+        console.log(error);
+        res.json({ allowed: false, message: error.message });
     }
 };
 
 exports.logTrade = async (req, res) => {
 
     try {
-        let userInfo = req?.userInfo;
-
-        if (!userInfo || !userInfo.user_Id) {
+        const user = req.user;
+        if (!user || !user.dhanClientId) {
             return res.json({
                 status: false,
                 message: "User authentication required"
             });
         }
 
-        const dhanClientId = userInfo.dhan_client_id;
+        const dhanClientId = user.dhanClientId;
+        const { index, quantity, pnl } = req.body;
 
-        const { index, quantity, pnl } = req.body?.inputdata;
-        const challenge = await query.runQuery(
-            "SELECT id FROM user_challenges WHERE dhan_client_id=? AND is_active=1 LIMIT 1",
-            [dhanClientId]
+        const challenge = await query.fetchSingleRecord(
+            constants.vals.defaultDB,
+            "user_challenges",
+            `WHERE dhan_client_id='${dhanClientId}' AND is_active=1`
         );
 
-        const challengeId = challenge.length ? challenge[0].id : null;
-        const sql = `
-        INSERT INTO challenge_trade_logs
-        (
-            dhan_client_id,
-            challenge_id,
-            index_name,
-            quantity,
-            pnl,
-            trade_date,
-            created_at
-        )
-        VALUES (?,?,?,?,?,CURDATE(),NOW())
-        `;
-        await query.runQuery(sql, [
-            dhanClientId,
-            challengeId,
-            index,
-            quantity,
-            pnl
-        ]);
+        await query.insertSingle(
+            constants.vals.defaultDB,
+            "challenge_trade_logs",
+            {
+                dhan_client_id: dhanClientId,
+                challenge_id: challenge?.id || null,
+                index_name: index,
+                quantity,
+                pnl,
+                trade_date: new Date()
+            }
+        );
 
         res.json({
             status: true,
             message: "Trade logged successfully"
         });
+
     } catch (error) {
-        console.log("TRADE LOG ERROR:", error);
-        res.json({
-            status: false,
-            message: error.message
-        });
+        console.log(error);
+        res.json({ status: false, message: error.message });
     }
 };
 
 exports.checkCooldown = async (req, res) => {
 
     try {
-        let userInfo = req?.userInfo;
-
-        if (!userInfo || !userInfo.user_Id) {
-            return res.json({
-                status: false,
-                message: "User authentication required"
-            });
-        }
-
-        const dhanClientId = userInfo.dhan_client_id;
-        const pause = await query.runQuery(
-            `SELECT * FROM challenge_pause_logs
-             WHERE dhan_client_id=?
-             AND pause_end > NOW()
-             ORDER BY id DESC
-             LIMIT 1`,
-            [dhanClientId]
+        const user = req.user;
+        const pause = await query.fetchRecords(
+            constants.vals.defaultDB,
+            "challenge_pause_logs",
+            `WHERE dhan_client_id='${user.dhanClientId}' AND pause_end > NOW() ORDER BY id DESC LIMIT 1`
         );
 
         if (pause.length) {
             return res.json({
                 allowed: false,
-                rule: "COOLDOWN_ACTIVE",
-                message: "Trading paused due to rule trigger",
                 pause_end: pause[0].pause_end
             });
         }
 
-        res.json({
-            allowed: true
-        });
+        res.json({ allowed: true });
+
     } catch (error) {
-        console.log("COOLDOWN ERROR:", error);
-        res.json({
-            allowed: false,
-            message: error.message
-        });
+        res.json({ allowed: false, message: error.message });
     }
 };
 
 exports.triggerCooldown = async (dhanClientId, challengeId, rule) => {
     try {
-        await query.runQuery(
-            `INSERT INTO challenge_pause_logs
-            (
-                dhan_client_id,
-                challenge_id,
-                rule_triggered,
-                pause_start,
-                pause_end,
-                created_at
-            )
-            VALUES (?, ?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 30 MINUTE), NOW())`,
-            [
-                dhanClientId,
-                challengeId,
-                rule
-            ]
+        await query.insertSingle(
+            constants.vals.defaultDB,
+            "challenge_pause_logs",
+            {
+                dhan_client_id: dhanClientId,
+                challenge_id: challengeId,
+                rule_triggered: rule,
+                pause_start: new Date(),
+                pause_end: new Date(Date.now() + 30 * 60 * 1000)
+            }
         );
 
     } catch (error) {
-        console.log("COOLDOWN INSERT ERROR:", error);
+        console.log(error);
     }
 };
 
 exports.quickUnlock = async (req, res) => {
+
     try {
-        let userInfo = req?.userInfo;
-
-        if (!userInfo || !userInfo.user_Id) {
-            return res.json({
-                status: false,
-                message: "User authentication required"
-            });
-        }
-
-        const dhanClientId = userInfo.dhan_client_id;
-        const pause = await query.runQuery(
-            `SELECT * FROM challenge_pause_logs
-             WHERE dhan_client_id=?
-             AND pause_end > NOW()
-             ORDER BY id DESC
-             LIMIT 1`,
-            [dhanClientId]
+        const user = req.user;
+        const pause = await query.fetchSingleRecord(
+            constants.vals.defaultDB,
+            "challenge_pause_logs",
+            `WHERE dhan_client_id='${user.dhanClientId}' AND pause_end > NOW() ORDER BY id DESC`
         );
 
-        if (!pause.length) {
+        if (!pause || !pause.id) {
             return res.json({
                 status: false,
                 message: "No active cooldown"
             });
         }
-        await query.runQuery(
-            `UPDATE challenge_pause_logs
-             SET pause_end = NOW(),
-             quick_unlock_used = 1,
-             updated_at = NOW()
-             WHERE id=?`,
-            [pause[0].id]
+
+        await query.updateRecord(
+            constants.vals.defaultDB,
+            "challenge_pause_logs",
+            `id=${pause.id}`,
+            `
+            pause_end=NOW(),
+            quick_unlock_used=1,
+            updated_at=NOW()
+            `
         );
+
         res.json({
             status: true,
-            message: "Trading resumed successfully"
+            message: "Trading resumed"
         });
+
     } catch (error) {
-        console.log("UNLOCK ERROR:", error);
-        res.json({
-            status: false,
-            message: error.message
-        });
+        res.json({ status: false, message: error.message });
     }
 };
